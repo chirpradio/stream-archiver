@@ -1,0 +1,20 @@
+{
+  "name": "player",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "functions-framework --target=archivePlayer",
+    "deploy": "gcloud functions deploy archive-player --runtime=nodejs16 --region=us-central1 --source=. --entry-point=archivePlayer --trigger-http --allow-unauthenticated"
+  },
+  "author": "Steve Lund <lund5000@gmail.com>",
+  "license": "MIT",
+  "dependencies": {
+    "@google-cloud/storage": "^6.9.0",
+    "express": "^4.18.2",
+    "express-handlebars": "^6.0.6"
+  },
+  "devDependencies": {
+    "@google-cloud/functions-framework": "^3.1.3"
+  }
+}

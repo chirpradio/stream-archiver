@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<head lang="en-US">
+  <meta charset="UTF-8" />
+  <style>
+    body {
+      color: #3f3437;
+      margin: 0;
+      font-family: Lucida Bright, Cambria, Georgia, serif;
+    }
+
+    article {
+      margin-bottom: 2rem;
+    }
+
+    p {
+      margin-bottom: 0.5rem;
+    }
+
+    button {
+      padding: 0.25rem;
+      background: none;
+      border: 1px solid #3f3437;  
+      border-radius: 0.25rem;    
+    }
+
+    button.pause,
+    .progress {
+      display: none;
+    }
+
+    .icon {
+      height: 1rem;
+      width: 1rem;
+      pointer-events: none;
+    }
+
+    article.playing button.play {
+      display: none;
+    }
+
+    article.playing button.pause {
+      display: inline-block;
+    }
+
+    article.playing .progress,
+    article.paused .progress {
+      display: inline;
+    }
+
+    .progress {
+      color: #777;
+      margin-left: 0.25rem;
+    }
+
+    .current {
+      display: inline-block;
+      min-width: 4rem;
+      text-align: right;
+    }
+  </style>
+</head>
+<body>
+  {{#each streams}}
+  <article>
+    <p class="title">{{this.title}}</p>
+    <button class="play" data-src="{{this.src}}">
+      <svg class="icon" version="1.1" xmlns="http://www.w3.org/2000/svg" x="0" y="0" viewBox="0 0 128 128" style="enable-background:new 0 0 128 128" xml:space="preserve"><style>.st0{display:none;fill:#3f3437}</style><g id="row1"><path id="_x31_" style="fill:#3f3437" d="M0 127V1l128 63z"/></g></svg>      
+    </button>
+    <button class="pause">
+      <svg class="icon" version="1.1" xmlns="http://www.w3.org/2000/svg" x="0" y="0" viewBox="0 0 128 128" style="enable-background:new 0 0 128 128" xml:space="preserve"><style>.st0{display:none;fill:#3f3437}</style><g id="row1"><path id="_x34_" d="M48 128H8V0h40v128zM120 0H80v128h40V0z" style="fill:#3f3437"/></g></svg>
+    </button>
+    <div class="progress">
+      <span class="current">0:00:00</span>
+      <progress></progress>
+      <span class="duration">0:00:00</span>
+    </div>
+  </article>
+  {{/each}}
+  
+  <script>
+    (() => {
+      const audio = new Audio();
+      const playButtons = document.querySelectorAll("button.play");
+      const pauseButtons = document.querySelectorAll("button.pause");
+      const containers = document.querySelectorAll("article");
+
+      function resetContainers() {
+        containers.forEach(el => el.classList.remove("playing"));
+        containers.forEach(el => el.classList.remove("paused"));
+      }
+
+      function onPlay(event) {
+        const button = event.target;
+        const parent = button.closest("article");
+
+        resetContainers();
+        parent.classList.add("playing");
+
+        if(audio.src !== button.dataset.src) {
+          audio.src = button.dataset.src;
+        }
+        audio.play();
+      }
+
+      function updateDuration(event) {
+        const duration = document.querySelector("article.playing span.duration");
+        if(duration) {
+          duration.textContent = new Date(audio.duration * 1000).toISOString().slice(12, 19);
+        }
+        
+        const progress = document.querySelector("article.playing progress");
+        if(progress) {
+          progress.max = audio.duration;
+        }      
+      }
+
+      function updateCurrent(event) {
+        const current = document.querySelector("article.playing span.current");
+        if(current) {
+          current.textContent = new Date(audio.currentTime * 1000).toISOString().slice(12, 19);
+        }
+        
+        const progress = document.querySelector("article.playing progress");
+        if(progress) {
+          progress.value = audio.currentTime;
+        }      
+      }
+
+      function onPause(event) {
+        const button = event.target;
+        const parent = button.closest("article");
+
+        resetContainers();
+        parent.classList.add("paused");
+
+        audio.pause();
+      }
+
+      playButtons.forEach(button => button.addEventListener("click", onPlay));
+      pauseButtons.forEach(button => button.addEventListener("click", onPause));
+      audio.addEventListener("ended", resetContainers);
+      audio.addEventListener("durationchange", updateDuration);
+      audio.addEventListener("timeupdate", updateCurrent);
+    })();
+  </script>
+</body>
