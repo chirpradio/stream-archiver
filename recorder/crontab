@@ -1,6 +1,7 @@
 # /proc/1/fd/1 2>/proc/1/fd/2 pipes the output to Docker logs
 
-# Everyday, 6a-9a and 9a-12p
+# Everyday at 12a-3a, 6a-9a, and 9a-12p
+0 0 * * * root /usr/local/bin/python /app/record.py --start 0 --duration 10800 > /proc/1/fd/1 2>/proc/1/fd/2
 0 6 * * * root /usr/local/bin/python /app/record.py --start 6 --duration 10800 > /proc/1/fd/1 2>/proc/1/fd/2
 0 9 * * * root /usr/local/bin/python /app/record.py --start 9 --duration 10800 > /proc/1/fd/1 2>/proc/1/fd/2
 
