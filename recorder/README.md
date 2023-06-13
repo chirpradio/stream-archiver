@@ -2,7 +2,8 @@
 `docker run -e GOOGLE_APPLICATION_CREDENTIALS=/tmp/keys/credentials.json -e GOOGLE_CLOUD_PROJECT=chirpradiodev -v ~/.config/gcloud/application_default_credentials.json:/tmp/keys/credentials.json stream-recorder`
 
 # Build commands
-* `docker build stream-recorder --build-arg GOOGLE_CLOUD_PROJECT=<PROJECT_ID> --build-arg BUCKET_NAME=<BUCKET_NAME> .`
+From this directory:
+* `docker build --build-arg GOOGLE_CLOUD_PROJECT=<PROJECT_ID> --build-arg BUCKET_NAME=<BUCKET_NAME> .`
 * `docker tag stream-recorder us-central1-docker.pkg.dev/<PROJECT_ID>/docker-repo/stream-recorder:wcxp-lp`
 * `docker push us-central1-docker.pkg.dev/<PROJECT_ID>/docker-repo/stream-recorder:wcxp-lp`
 

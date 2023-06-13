@@ -34,7 +34,7 @@ function parseWeekdayToInt(req, res, next, value) {
       req.weekdayInt = weekdayMap[value.toLowerCase()];
       next();
     } else {
-      res.sendStatus(400);
+      res.status(400).send(`'${value}' isn't a valid weekday value`);
     }
   }
 }
@@ -46,26 +46,38 @@ function parseWeekdayToInt(req, res, next, value) {
 */
 function parseShiftStartTo24Hr(req, res, next, value) {
   const groups = value.match(/(\d{1,2})([ap]*)/);
-  
-  const hour = parseInt(groups[1], 10);
-  if (isNaN(hour)) {
-    res.sendStatus(400);
+  if (groups === null) {
+    res.status(400).send(`'${value}' isn't a valid shift start value`);
   }
 
+  const hour = parseInt(groups[1], 10);
+  if (isNaN(hour)) {
+    res.status(400).send(`'${value}' isn't a valid shift start value`);
+  }
+
+  let shiftStartSet = false;
   const dayPart = groups[2];
-  if (dayPart === "a" || dayPart === "") {
-    req.shiftStart = hour;
+  if (hour === 12) {
+    if (dayPart === "a") {
+      req.shiftStart = 0;
+    } else if (dayPart === "p" || dayPart === "") {
+      req.shiftStart = 12;
+    }
+    shiftStartSet = true;
     next();
-  } else if (dayPart === "p") {
-    if (hour === 12) {
+  } else {
+    if (dayPart === "a" || dayPart === "") {
       req.shiftStart = hour;
-    } else {
+    } else if (dayPart === "p") {
       req.shiftStart = hour + 12;
     }
-    next();     
-  } else {
-    res.sendStatus(400);
-  } 
+    shiftStartSet = true;
+    next();
+  }
+
+  if (!shiftStartSet) {
+    res.status(400).send(`'${value}' isn't a valid shift start value`);
+  }
 } 
 
 async function getFiles({ callSign, weekday, shiftStart } = params) {
@@ -105,6 +117,7 @@ function mapToLocals(files) {
 }
 
 async function renderPlayer(req, res) {  
+  console.log(req.shiftStart);
   const files = await getFiles({
     callSign: req.params.callSign,
     weekday: req.weekdayInt,
