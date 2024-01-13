@@ -1,12 +1,13 @@
 from google.cloud import storage
+import google.cloud.logging
 from datetime import datetime
 import argparse
-import time
-import requests
 import logging
 import math
 import os 
+import requests
 import secrets
+import time
 
 STREAM_URL = os.getenv('STREAM_URL')
 BUCKET_NAME = os.getenv('BUCKET_NAME')
@@ -17,7 +18,8 @@ parser.add_argument('--start', dest='start', help='hour of the day the shift sta
 parser.add_argument('--duration', dest='duration', help='duration to record (seconds)', type=int, required=True)
 args = parser.parse_args()
 
-logging.basicConfig(level=logging.DEBUG)
+client = google.cloud.logging.Client()
+client.setup_logging()
 
 def get_filename():     
     now = datetime.now()
