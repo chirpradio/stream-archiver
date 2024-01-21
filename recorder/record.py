@@ -18,8 +18,11 @@ parser.add_argument('--start', dest='start', help='hour of the day the shift sta
 parser.add_argument('--duration', dest='duration', help='duration to record (seconds)', type=int, required=True)
 args = parser.parse_args()
 
-client = google.cloud.logging.Client()
-client.setup_logging()
+def setup_logging():
+    logging.basicConfig(level=logging.DEBUG)
+    if os.getenv('LOGGING') == 'GC':
+        client = google.cloud.logging.Client()
+        client.setup_logging()
 
 def get_filename():     
     now = datetime.now()
@@ -37,30 +40,49 @@ def open_blob(filename):
 
 last_progress = 0
 
-def log_progress(filename, elapsed):
+def log_progress(filename, elapsed_time):
     global last_progress
-    progress = round(elapsed / args.duration * 100)
+    progress = min(round(elapsed_time / args.duration * 100), 100)
     if math.fmod(progress, 5) == 0 and progress > last_progress:
         logging.info(f'{filename} - {progress}% complete')
         last_progress = progress
 
-if __name__ == "__main__": 
-    start_time = time.time()    
+def save_streamed_response():
+    start_time = time.time()
     filename = get_filename()
-    logging.info(f'{filename} - starting ...') 
-    blob_writer = open_blob(filename) 
-    r = requests.get(STREAM_URL, stream=True)
-    with blob_writer as f:
+    file = open_blob(filename)
+    chunk_size = 512 * 1024 # 0.5MB
+    retries = 0
+    max_retries = 3
+    recording = True
+
+    while recording:
         try:
-            while True:                
-                for block in r.iter_content(10000):                
-                    f.write(block)                
-                    elapsed = time.time() - start_time 
-                    if elapsed > args.duration:                        
+            logging.info(f'Attempt #{retries + 1}')
+            with requests.get(STREAM_URL, stream=True) as response:
+                response.raise_for_status()
+                logging.info(f'{filename} - starting ...')                 
+                for chunk in response.iter_content(chunk_size=chunk_size):
+                    if chunk:
+                        file.write(chunk)
+                    else:
+                        logging.info('No chunk to write')
+                    
+                    elapsed_time = time.time() - start_time
+                    log_progress(filename, elapsed_time)         
+                    if elapsed_time >= args.duration:
+                        recording = False
                         break
-                    else: 
-                        log_progress(filename, elapsed)                      
-                logging.info(f'{filename} - complete')
-                break
-        except Exception as e:
+        except Exception:
             logging.exception('Exception occurred')
+            if retries < max_retries:
+                retries += 1
+                time.sleep(retries)
+                continue
+            else:
+                recording = False
+                break
+
+if __name__ == '__main__':    
+    setup_logging()
+    save_streamed_response()

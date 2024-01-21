@@ -13,6 +13,8 @@ ENV CALL_SIGN=${CALL_SIGN}
 ARG STREAM_URL=http://peridot.streamguys.com:5180/live
 ENV STREAM_URL=${STREAM_URL}
 
+ENV LOGGING=GC
+
 # Use station's local time
 RUN apt-get update && apt-get install -y tzdata
 
