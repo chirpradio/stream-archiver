@@ -43,6 +43,7 @@ class Recorder():
         if os.getenv('LOGGING') == 'GC':
             client = google.cloud.logging.Client()
             client.setup_logging()
+            logging.getLogger().setLevel(logging.DEBUG)
 
     def get_filename(self):     
         now = datetime.now()
