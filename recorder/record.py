@@ -97,7 +97,6 @@ class Recorder():
                     time.sleep(attempts)
                     continue
                 else:
-                    recording = False
                     sys.exit(self.MAX_ATTEMPTS_CODE)
 
 if __name__ == '__main__':    
