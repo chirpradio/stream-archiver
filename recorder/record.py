@@ -17,7 +17,7 @@ class Recorder():
     BUCKET_NAME = os.getenv('BUCKET_NAME')
     CALL_SIGN = os.getenv('CALL_SIGN')
     MAX_ATTEMPTS = 3
-    MAX_ATTEMPTS_CODE = 'Exceeded maximum attempts'
+    MAX_ATTEMPTS_EXCEEDED = 'Exceeded maximum attempts'
 
     def __init__(self, mode = 'normal', test_param = None):
        self.parse_args(mode, test_param)
@@ -97,7 +97,8 @@ class Recorder():
                     time.sleep(attempts)
                     continue
                 else:
-                    sys.exit(self.MAX_ATTEMPTS_CODE)
+                    logging.critical(self.MAX_ATTEMPTS_EXCEEDED)
+                    sys.exit(1)
 
 if __name__ == '__main__':    
     r = Recorder()

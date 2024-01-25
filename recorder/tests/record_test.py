@@ -50,7 +50,7 @@ class recorderTests(unittest.TestCase):
         with self.assertRaises(SystemExit) as context:
             self.recorder.save_streamed_response()   
         self.assertEqual(mock_get.call_count, self.recorder.MAX_ATTEMPTS)         
-        self.assertEqual(context.exception.code, self.recorder.MAX_ATTEMPTS_CODE)
+        self.assertEqual(context.exception.code, 1)
 
     @patch('requests.get')
     def test_retries_on_reset(self, mock_get):
