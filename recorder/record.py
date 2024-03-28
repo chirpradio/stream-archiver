@@ -1,105 +1,36 @@
 from google.cloud import storage
 import google.cloud.logging
 from datetime import datetime
-import argparse
+from zoneinfo import ZoneInfo
 import logging
-import math
 import os 
 import requests
-import secrets
-import sys
-import time
 
-class Recorder():
+sc = storage.Client()
+bucket = sc.bucket(os.getenv('BUCKET_NAME'))
 
-    last_progress = 0
-    STREAM_URL = os.getenv('STREAM_URL')
-    BUCKET_NAME = os.getenv('BUCKET_NAME')
-    CALL_SIGN = os.getenv('CALL_SIGN')
-    MAX_ATTEMPTS = 3
-    MAX_ATTEMPTS_EXCEEDED = 'Exceeded maximum attempts'
+logging.basicConfig(level=logging.DEBUG)
+lc = google.cloud.logging.Client()
+lc.setup_logging()
+logging.getLogger().setLevel(logging.DEBUG)
 
-    def __init__(self, mode = 'normal', test_param = None):
-       self.parse_args(mode, test_param)
-       self.setup_logging()
+def record():
+    size = 256 * 1024 # roughly 15 seconds
+    r = requests.get('http://peridot.streamguys.com:5180/live', stream=True)
+    r.raise_for_status()
 
-    def parse_args(self, mode, test_param):
-        if mode == 'unittest':
-            if test_param is None:
-                sys.exit('Missing test params')
+    for chunk in r.iter_content(chunk_size=size):
+        now = datetime.now(ZoneInfo('America/Chicago'))
+        ts = now.strftime('%Y-%m-%d-%H-%M-%S')
+        name = f'WCXP-LP-{ts}.mp3'
+        blob = bucket.blob(name)
+        writer = blob.open('wb')
+        writer.write(chunk)
+        writer.close()
+        logging.info(f'wrote {name}')        
 
-            self.start = test_param['start']
-            self.duration = test_param['duration']
-        else:
-            parser = argparse.ArgumentParser()
-            parser.add_argument('--start', dest='start', help='hour of the day the shift starts (0-23)', type=int, required=True)
-            parser.add_argument('--duration', dest='duration', help='duration to record (seconds)', type=int, required=True)
-            args = parser.parse_args()
-            self.start = args.start
-            self.duration = args.duration 
 
-    def setup_logging(self):
-        logging.basicConfig(level=logging.DEBUG)
-        if os.getenv('LOGGING') == 'GC':
-            client = google.cloud.logging.Client()
-            client.setup_logging()
-            logging.getLogger().setLevel(logging.DEBUG)
-
-    def get_filename(self):     
-        now = datetime.now()
-        weekday = now.strftime('%w')
-        date_string = now.strftime('%Y-%m-%d')
-        # add a random token to make it harder to scrape the files
-        token = secrets.token_urlsafe(4)
-        return f'{self.CALL_SIGN}-{weekday}-{self.start}-{date_string}-{token}.mp3'
-
-    def open_blob(self, filename):
-        storage_client = storage.Client()
-        bucket = storage_client.bucket(self.BUCKET_NAME)
-        blob = bucket.blob(filename)
-        return blob.open('wb')
-
-    def log_progress(self, filename, elapsed_time):
-        progress = min(round(elapsed_time / self.duration * 100), 100)
-        if math.fmod(progress, 5) == 0 and progress > self.last_progress:
-            logging.info(f'{filename} - {progress}% complete')
-            self.last_progress = progress
-
-    def save_streamed_response(self):
-        start_time = time.time()
-        filename = self.get_filename()
-        file = self.open_blob(filename)
-        chunk_size = 512 * 1024 # 0.5MB
-        attempts = 1
-        recording = True
-
-        while recording:
-            try:
-                logging.info(f'Attempt #{attempts}')
-                with requests.get(self.STREAM_URL, stream=True) as response:
-                    response.raise_for_status()
-                    logging.info(f'{filename} - starting ...')                       
-                    for chunk in response.iter_content(chunk_size=chunk_size):
-                        if chunk:
-                            file.write(chunk)
-                        else:
-                            logging.info('No chunk to write')
-                        
-                        elapsed_time = time.time() - start_time
-                        self.log_progress(filename, elapsed_time)         
-                        if elapsed_time >= self.duration:
-                            recording = False
-                            break
-            except Exception:                
-                logging.exception('Exception occurred')
-                attempts += 1
-                if attempts <= self.MAX_ATTEMPTS:                    
-                    time.sleep(attempts)
-                    continue
-                else:
-                    logging.critical(self.MAX_ATTEMPTS_EXCEEDED)
-                    sys.exit(1)
-
-if __name__ == '__main__':    
-    r = Recorder()
-    r.save_streamed_response()
+try:
+    record()
+except Exception:
+    logging.exception('Exception occurred')
