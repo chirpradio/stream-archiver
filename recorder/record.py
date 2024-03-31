@@ -21,7 +21,7 @@ def record():
 
     for chunk in r.iter_content(chunk_size=size):
         now = datetime.now(ZoneInfo('America/Chicago'))
-        ts = now.strftime('%Y-%m-%d-%w-%H-%M-%S')
+        ts = now.strftime('%w-%H-%M-%S-%Y-%m-%d')
         name = f'WCXP-LP-{ts}.mp3'
         blob = bucket.blob(name)
         writer = blob.open('wb')
