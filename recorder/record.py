@@ -8,9 +8,6 @@ from google.cloud import storage
 from http.client import HTTPConnection
 from zoneinfo import ZoneInfo
 
-sc = storage.Client()
-bucket = sc.bucket(os.getenv('BUCKET_NAME'))
-
 # allll the logging
 HTTPConnection.debuglevel = 1
 logging.basicConfig()
@@ -20,26 +17,27 @@ requests_log.setLevel(logging.DEBUG)
 requests_log.propagate = True
 lc = google.cloud.logging.Client()
 lc.setup_logging()
-logging.getLogger().setLevel(logging.DEBUG)
-
-r = requests.get('http://peridot.streamguys.com:5180/live', stream=True, timeout=15)
-r.raise_for_status()
 
 # handle timeouts
 class TimeoutException(Exception):
     pass
 
 def timeout_handler(signum, frame):
-    r.raise_for_status()
     raise TimeoutException
 
 signal.signal(signal.SIGALRM, timeout_handler)
 
 
 def record():
-    size = 256 * 1024 # roughly 15 seconds
+    sc = storage.Client()
+    bucket = sc.bucket(os.getenv('BUCKET_NAME'))
+
+    r = requests.get('http://peridot.streamguys.com:5180/live', stream=True, timeout=15)
+    r.raise_for_status()
+    size = 256 * 1024 # roughly 15-20 seconds
+    
     for chunk in r.iter_content(chunk_size=size):
-        # reset timeout
+        # reset timer
         signal.alarm(0)
 
         now = datetime.now(ZoneInfo('America/Chicago'))
@@ -51,13 +49,11 @@ def record():
         writer.close()
         logging.info(f'wrote {name}')
 
-        # start timeout
+        # start timer
         signal.alarm(20)
 
 
 try:
     record()
-    logging.info('stopped recording')
 except Exception:
     logging.exception('Exception occurred')
-logging.info('out of try block')
