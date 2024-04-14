@@ -32,9 +32,9 @@ def record():
     sc = storage.Client()
     bucket = sc.bucket(os.getenv('BUCKET_NAME'))
 
-    r = requests.get('http://peridot.streamguys.com:5180/live', stream=True, timeout=15)
+    r = requests.get('http://peridot.streamguys.com:5180/live', stream=True, timeout=25)
     r.raise_for_status()
-    size = 256 * 1024 # roughly 15-20 seconds
+    size = 320 * 1024 # ~20 seconds of audio
     
     for chunk in r.iter_content(chunk_size=size):
         # reset timer
@@ -50,7 +50,7 @@ def record():
         logging.info(f'wrote {name}')
 
         # start timer
-        signal.alarm(20)
+        signal.alarm(30)
 
 
 try:
