@@ -2,6 +2,7 @@ import logging
 import os 
 import requests
 import signal
+import socket
 import google.cloud.logging
 from datetime import datetime
 from google.cloud import storage
@@ -34,6 +35,11 @@ def record():
 
     r = requests.get('http://peridot.streamguys.com:5180/live', stream=True, timeout=25)
     r.raise_for_status()
+    s = socket.fromfd(r.raw.fileno(), socket.AF_INET, socket.SOCK_STREAM)
+    s.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 1)
+    s.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 3)
+    s.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 5)
+
     size = 320 * 1024 # ~20 seconds of audio
     
     for chunk in r.iter_content(chunk_size=size):
@@ -45,7 +51,7 @@ def record():
         name = f'WCXP-LP-{ts}.mp3'
         blob = bucket.blob(name)
         writer = blob.open('wb')
-        writer.write(chunk)
+        # writer.write(chunk)
         writer.close()
         logging.info(f'wrote {name}')
 
