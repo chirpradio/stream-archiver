@@ -1,8 +1,8 @@
 import logging
 import os 
 import requests
-from requests_toolbelt.adapters import socket_options
 import signal
+import socket
 import google.cloud.logging
 from datetime import datetime
 from google.cloud import storage
@@ -33,12 +33,12 @@ def record():
     sc = storage.Client()
     bucket = sc.bucket(os.getenv('BUCKET_NAME'))
 
-    tcp = socket_options.TCPKeepAliveAdapter(idle=3, interval=3, count=5)
-    s = requests.Session()
-    s.mount('http://', tcp)
-    
-    r = s.get('http://peridot.streamguys.com:5180/live', stream=True, timeout=25)
+    r = requests.get('http://peridot.streamguys.com:5180/live', stream=True, timeout=25)
     r.raise_for_status()
+    s = socket.fromfd(r.raw.fileno(), socket.AF_INET, socket.SOCK_STREAM)
+    s.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 1)
+    s.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 3)
+    s.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 5)
 
     size = 320 * 1024 # ~20 seconds of audio
     
@@ -49,10 +49,10 @@ def record():
         now = datetime.now(ZoneInfo('America/Chicago'))
         ts = now.strftime('%w-%-H-%M-%S-%Y-%m-%d')
         name = f'WCXP-LP-{ts}.mp3'
-        # blob = bucket.blob(name)
-        # writer = blob.open('wb')
+        blob = bucket.blob(name)
+        writer = blob.open('wb')
         # writer.write(chunk)
-        # writer.close()
+        writer.close()
         logging.info(f'wrote {name}')
 
         # start timer
