@@ -19,7 +19,7 @@ function getFilename(weekday, hour, shiftDate) {
   return `${prefix}${shiftDate}-${token}.mp3`;
 }
 
-async function getAudioChunksForHour(weekday, hour) {  
+async function getAudioChunksForHour(weekday, hour) {
   const [files] = await sourceBucket.getFiles({
     prefix: getPrefix(weekday, hour),
   });
@@ -97,16 +97,39 @@ async function deleteSourceFiles(hourFiles) {
 }
 
 async function composeStreamArchive(cloudEvent) {
+  let success = false;
+  let hourFiles;
+
   try {
-    const shift = JSON.parse(atob(cloudEvent.data.message.data));    
-    const hourFiles = await composeHours(shift); 
-    const filename = getFilename(shift.weekday, shift.hours[0], shiftDate);    
+    const shift = JSON.parse(atob(cloudEvent.data.message.data));
+    hourFiles = await composeHours(shift);
+    const filename = getFilename(shift.weekday, shift.hours[0], shiftDate);
     const shiftFile = await composeShift(filename, hourFiles);
     await moveToPublicFolder(filename, shiftFile);
-    await deleteSourceFiles(hourFiles);
+    success = true;
     console.log(`Success: ${filename}`);
   } catch (err) {
     console.error(err);
+
+    if (err.code === 429) {
+      // retry if we made too many API requests when combining
+      return Promise.reject();
+    } else {
+      // otherwise do not retry
+      return Promise.resolve();
+    }
+  }
+
+  if (success) {
+    try {
+      await deleteSourceFiles(hourFiles);
+    } catch (err) {
+      console.error(err);
+      /*
+        don't worry about retrying and let the bucket 
+        retention policy handle clean up instead
+      */
+    }
   }
 }
 
