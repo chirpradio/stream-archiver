@@ -1,5 +1,5 @@
 gcloud pubsub schemas create shift \
-  --type=AVRO \ 
+  --type=AVRO \
   --definition='{
     "type" : "record", "name" : "shift"
     "fields" : [
