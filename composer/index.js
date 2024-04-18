@@ -87,7 +87,10 @@ async function composeShift(filename, hourFiles) {
 
 async function moveToPublicFolder(filename, shiftFile) {
   const publicFile = destinationBucket.file(filename);
-  shiftFile.move(publicFile);
+  await shiftFile.move(publicFile);
+  await publicFile.setMetadata({
+    contentType: "audio/mpeg",
+  });
 }
 
 async function deleteSourceFiles(hourFiles) {
