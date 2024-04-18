@@ -42,7 +42,8 @@ async function getAudioChunksForHour(weekday, hour) {
 */
 async function composeHour(weekday, hour) {
   const sources = await getAudioChunksForHour(weekday, hour);
-  shiftDate = sources[0].metadata.timeCreated.slice(0, 10);
+  const createDate = new Date(sources[0].metadata.timeCreated);
+  shiftDate = createDate.toISOString().split('T')[0];
   const filename = getFilename(weekday, hour, shiftDate);
   const hourFile = sourceBucket.file(`temp/${filename}`);
 
