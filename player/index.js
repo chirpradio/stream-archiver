@@ -78,7 +78,7 @@ async function getFiles({ callSign, weekday, shiftStart }) {
 
   // Return the two most recent recordings
   files.sort((a, b) => {
-    return a.metadata.timeCreated < b.metadata.timeCreated ? 1 : -1;
+    return a.name < b.name ? 1 : -1;
   });
   return files.slice(0, 2);
 }
