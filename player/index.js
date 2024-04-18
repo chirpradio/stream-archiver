@@ -88,7 +88,7 @@ function mapToLocals(files, shiftStart) {
     const lastHyphen = file.name.lastIndexOf("-");
     const isoDate = file.name.slice(lastHyphen - 10, lastHyphen);
     const paddedHour = shiftStart.toString().padStart(2, "0");
-    const d = new Date(`${isoDate}T${paddedHour}:00:00`);
+    const d = new Date(`${isoDate}T${paddedHour}:00:00-05:00`);
 
     const options = {
       weekday: "long",
@@ -116,14 +116,15 @@ functions.http("player", async (req, res) => {
   if (req.method === "GET") {
     try {
       const [, callSign, weekday, shiftStart] = req.path.split("/");
+      const parsedStart = parseShiftStartTo24Hr(shiftStart);
 
       const files = await getFiles({
         callSign: callSign,
         weekday: parseWeekdayToInt(weekday),
-        shiftStart: parseShiftStartTo24Hr(shiftStart),
+        shiftStart: parsedStart,
       });
       if (files.length > 0) {
-        const html = await renderHtml(files, shiftStart);
+        const html = await renderHtml(files, parsedStart);
         res.status(200).send(html);
       } else {
         res.sendStatus(404);
