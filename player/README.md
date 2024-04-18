@@ -12,8 +12,8 @@
 
 ## Dev
 
-`npm run deploy -- --set-env-vars BUCKET=chirpradiodev-stream-archives`
+`npm run deploy -- --project=chirpradiodev  --set-env-vars BUCKET=chirpradiodev-stream-archives`
 
 ## Production
 
-`npm run deploy -- --set-env-vars BUCKET=chirpradio-stream-archives`
+`npm run deploy -- --project=chirpradio-hrd --set-env-vars BUCKET=chirpradio-stream-archives`
