@@ -127,7 +127,7 @@ functions.http("player", async (req, res) => {
         const html = await renderHtml(files, parsedStart);
         res.status(200).send(html);
       } else {
-        res.sendStatus(404);
+        res.status(404).send("");
       }
     } catch (err) {
       console.log(req.path);
@@ -135,7 +135,7 @@ functions.http("player", async (req, res) => {
       if (err instanceof TypeError) {
         res.status(400).send(err.message);
       } else {
-        res.status(500);
+        res.status(500).send("");
       }
     }
   } else {
