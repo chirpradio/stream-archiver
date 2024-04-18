@@ -1,4 +1,4 @@
 .DS_Store
-/player/node_modules
-/composer/node_modules
-/composer/.env.json
+*/node_modules
+*/.env.json
+*/env.yaml
