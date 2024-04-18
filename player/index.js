@@ -83,14 +83,12 @@ async function getFiles({ callSign, weekday, shiftStart }) {
   return files.slice(0, 2);
 }
 
-function mapToLocals(files) {
+function mapToLocals(files, shiftStart) {
   return files.map((file) => {
-    const d = new Date(file.metadata.timeCreated);
-    /* 
-      ensure that shifts that end at midnight 
-      are listed as their start date
-    */
-    d.setHours(d.getHours() - 2);
+    const lastHyphen = file.name.lastIndexOf("-");
+    const isoDate = file.name.slice(lastHyphen - 10, lastHyphen);
+    const paddedHour = shiftStart.toString().padStart(2, "0");
+    const d = new Date(`${isoDate}T${paddedHour}:00:00`);
 
     const options = {
       weekday: "long",
@@ -107,8 +105,8 @@ function mapToLocals(files) {
   });
 }
 
-async function renderHtml(files) {
-  const streams = mapToLocals(files);
+async function renderHtml(files, shiftStart) {
+  const streams = mapToLocals(files, shiftStart);
   const template = await fs.readFile("./player.handlebars", "utf8");
   const compiledTemplate = Handlebars.compile(template);
   return compiledTemplate({ streams });
@@ -125,7 +123,7 @@ functions.http("player", async (req, res) => {
         shiftStart: parseShiftStartTo24Hr(shiftStart),
       });
       if (files.length > 0) {
-        const html = await renderHtml(files);
+        const html = await renderHtml(files, shiftStart);
         res.status(200).send(html);
       } else {
         res.sendStatus(404);
