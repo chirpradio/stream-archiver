@@ -4,8 +4,7 @@ const storage = new Storage();
 const sourceBucket = storage.bucket(process.env.SOURCE_BUCKET);
 const destinationBucket = storage.bucket(process.env.DESTINATION_BUCKET);
 const crypto = require("crypto");
-
-let shiftDate;
+const { formatInTimeZone, format } = require("date-fns-tz");
 
 function getPrefix(weekday, hour) {
   return `WCXP-LP-${weekday}-${hour}-`;
@@ -19,6 +18,10 @@ function getFilename(weekday, hour, shiftDate) {
   return `${prefix}${shiftDate}-${token}.mp3`;
 }
 
+function sortFilesByTimeCreated(a, b) {
+  return a.metadata.timeCreated < b.metadata.timeCreated ? -1 : 1;
+}
+
 async function getAudioChunksForHour(weekday, hour) {
   const [files] = await sourceBucket.getFiles({
     prefix: getPrefix(weekday, hour),
@@ -27,10 +30,8 @@ async function getAudioChunksForHour(weekday, hour) {
     throw Error(`Missing files for ${hour}`);
   }
 
-  // sort by creation time just to be sure they're in order
-  files.sort((a, b) =>
-    a.metadata.timeCreated < b.metadata.timeCreated ? -1 : 1,
-  );
+  // ensure they're in order
+  files.sort(sortFilesByTimeCreated);
 
   return files;
 }
@@ -42,9 +43,7 @@ async function getAudioChunksForHour(weekday, hour) {
 */
 async function composeHour(weekday, hour) {
   const sources = await getAudioChunksForHour(weekday, hour);
-  const createDate = new Date(sources[0].metadata.timeCreated);
-  shiftDate = createDate.toISOString().split('T')[0];
-  const filename = getFilename(weekday, hour, shiftDate);
+  const filename = getFilename(weekday, hour, "");
   const hourFile = sourceBucket.file(`temp/${filename}`);
 
   /*
@@ -75,6 +74,21 @@ async function composeHours(shift) {
   return hourFiles;
 }
 
+function getShiftDate(hourFiles) {
+  // find the earliest source file
+  const firstSources = hourFiles.map((f) => f.sources[0]);
+  firstSources.sort(sortFilesByTimeCreated);
+  const earliest = firstSources[0];
+  const shiftDate = new Date(earliest.metadata.timeCreated);
+  
+  // set time to the beginning of that hour
+  shiftDate.setMinutes(0);
+  shiftDate.setSeconds(0);
+  shiftDate.setMilliseconds(0);
+  
+  return shiftDate;
+}
+
 // compose each hour into a single file for the entire shift
 async function composeShift(filename, hourFiles) {
   const composedHours = hourFiles.map((o) => o.file);
@@ -85,11 +99,17 @@ async function composeShift(filename, hourFiles) {
   return shiftFile;
 }
 
-async function moveToPublicFolder(filename, shiftFile) {
+async function moveToPublicFolder(filename, shiftFile, shiftDate) {
   const publicFile = destinationBucket.file(filename);
   await shiftFile.move(publicFile);
   await publicFile.setMetadata({
     contentType: "audio/mpeg",
+    /*
+      Not the most descriptive field name, but
+      it can be used to automatically delete recordings
+      https://cloud.google.com/storage/docs/metadata#custom-time
+    */
+    customTime: format(shiftDate, "yyyy-MM-dd'T'HH:mm:ss'Z'"),
   });
 }
 
@@ -107,9 +127,14 @@ async function composeStreamArchive(cloudEvent) {
   try {
     const shift = JSON.parse(atob(cloudEvent.data.message.data));
     hourFiles = await composeHours(shift);
-    const filename = getFilename(shift.weekday, shift.hours[0], shiftDate);
+    const shiftDate = getShiftDate(hourFiles);
+    const filename = getFilename(
+      shift.weekday,
+      shift.hours[0],
+      formatInTimeZone(shiftDate, "America/Chicago", "yyyy-MM-dd"),
+    );
     const shiftFile = await composeShift(filename, hourFiles);
-    await moveToPublicFolder(filename, shiftFile);
+    await moveToPublicFolder(filename, shiftFile, shiftDate);
     success = true;
     console.log(`Success: ${filename}`);
   } catch (err) {
