@@ -41,7 +41,7 @@ def record():
         signal.alarm(0)
 
         now = datetime.now(ZoneInfo('America/Chicago'))
-        ts = now.strftime('%w-%-H-%M-%S-%Y-%m-%d')
+        ts = now.strftime('%w-%H-%M-%S-%Y-%m-%d')
         name = f'WCXP-LP-{ts}.mp3'
         blob = bucket.blob(name)
         writer = blob.open('wb')
