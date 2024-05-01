@@ -6,8 +6,9 @@ const destinationBucket = storage.bucket(process.env.DESTINATION_BUCKET);
 const crypto = require("crypto");
 const { formatInTimeZone, format } = require("date-fns-tz");
 
-function getPrefix(weekday, hour) {
-  return `WCXP-LP-${weekday}-${hour}-`;
+function getPrefix(weekday, hour, padStart = false) {
+  const hourString = padStart ? hour.toString().padStart(2, "0") : hour;
+  return `WCXP-LP-${weekday}-${hourString}-`;
 }
 
 function getFilename(weekday, hour, shiftDate) {
@@ -24,7 +25,7 @@ function sortFilesByTimeCreated(a, b) {
 
 async function getAudioChunksForHour(weekday, hour) {
   const [files] = await sourceBucket.getFiles({
-    prefix: getPrefix(weekday, hour),
+    prefix: getPrefix(weekday, hour, true),
   });
   if (files.length === 0) {
     throw Error(`Missing files for ${hour}`);
