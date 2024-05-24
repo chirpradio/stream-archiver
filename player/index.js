@@ -68,7 +68,7 @@ function parseShiftStartTo24Hr(value) {
     throw new TypeError(`'${value}' isn't a valid shift start value`);
   }
 
-  return shiftStart;
+  return shiftStart.toString().padStart(2, "0");
 }
 
 async function getFiles({ callSign, weekday, shiftStart }) {
@@ -86,9 +86,8 @@ async function getFiles({ callSign, weekday, shiftStart }) {
 function mapToLocals(files, shiftStart) {
   return files.map((file) => {
     const lastHyphen = file.name.lastIndexOf("-");
-    const isoDate = file.name.slice(lastHyphen - 10, lastHyphen);
-    const paddedHour = shiftStart.toString().padStart(2, "0");
-    const d = new Date(`${isoDate}T${paddedHour}:00:00-05:00`);
+    const isoDate = file.name.slice(lastHyphen - 10, lastHyphen);    
+    const d = new Date(`${isoDate}T${shiftStart}:00:00-05:00`);
 
     const options = {
       weekday: "long",
