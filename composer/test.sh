@@ -1,0 +1,1 @@
+curl -X POST localhost:8081 -d @test.json --header "Content-Type: application/json"

@@ -1,40 +1,33 @@
-const express = require("express");
-const { engine } = require("express-handlebars");
-
-const app = express();
-app.engine("handlebars", engine());
-app.set("view engine", "handlebars");
-app.set("views", "./views");
-
+const functions = require("@google-cloud/functions-framework");
 const { Storage } = require("@google-cloud/storage");
 const storage = new Storage();
 const BUCKET = process.env.BUCKET;
+const Handlebars = require("handlebars");
+const fs = require("fs").promises;
 
 /*
   parses weekday for a shift
   from three-letter abbreviation (e.g., "tue") 
   or cron notation (0-6 = sun-sat)
 */
-function parseWeekdayToInt(req, res, next, value) {
+function parseWeekdayToInt(value) {
   const parsed = parseInt(value, 10);
   if (!isNaN(parsed)) {
-    req.weekdayInt = parsed;  
-    next();
+    return parsed;
   } else {
     const weekdayMap = {
-      "sun": 0,
-      "mon": 1,
-      "tue": 2,
-      "wed": 3,
-      "thu": 4,
-      "fri": 5,
-      "sat": 6,
+      sun: 0,
+      mon: 1,
+      tue: 2,
+      wed: 3,
+      thu: 4,
+      fri: 5,
+      sat: 6,
     };
-    if(Object.keys(weekdayMap).includes(value.toLowerCase())) {
-      req.weekdayInt = weekdayMap[value.toLowerCase()];
-      next();
+    if (Object.keys(weekdayMap).includes(value.toLowerCase())) {
+      return weekdayMap[value.toLowerCase()];
     } else {
-      res.status(400).send(`'${value}' isn't a valid weekday value`);
+      throw new TypeError(`'${value}' isn't a valid weekday value`);
     }
   }
 }
@@ -44,96 +37,107 @@ function parseWeekdayToInt(req, res, next, value) {
   from human-readable abbreviations (e.g., "9a", "12p", "10p") 
   or 24-hour notation (e.g., "9", "12", "22")
 */
-function parseShiftStartTo24Hr(req, res, next, value) {
+function parseShiftStartTo24Hr(value) {
   const groups = value.match(/(\d{1,2})([ap]*)/);
   if (groups === null) {
-    res.status(400).send(`'${value}' isn't a valid shift start value`);
+    throw new TypeError(`'${value}' isn't a valid shift start value`);
   }
 
   const hour = parseInt(groups[1], 10);
   if (isNaN(hour)) {
-    res.status(400).send(`'${value}' isn't a valid shift start value`);
+    throw new TypeError(`'${value}' isn't a valid shift start value`);
   }
 
-  let shiftStartSet = false;
+  let shiftStart;
   const dayPart = groups[2];
   if (hour === 12) {
     if (dayPart === "a") {
-      req.shiftStart = 0;
+      shiftStart = 0;
     } else if (dayPart === "p" || dayPart === "") {
-      req.shiftStart = 12;
+      shiftStart = 12;
     }
-    shiftStartSet = true;
-    next();
   } else {
     if (dayPart === "a" || dayPart === "") {
-      req.shiftStart = hour;
+      shiftStart = hour;
     } else if (dayPart === "p") {
-      req.shiftStart = hour + 12;
+      shiftStart = hour + 12;
     }
-    shiftStartSet = true;
-    next();
   }
 
-  if (!shiftStartSet) {
-    res.status(400).send(`'${value}' isn't a valid shift start value`);
+  if (typeof shiftStart === "undefined") {
+    throw new TypeError(`'${value}' isn't a valid shift start value`);
   }
-} 
 
-async function getFiles({ callSign, weekday, shiftStart } = params) {
+  return shiftStart.toString().padStart(2, "0");
+}
+
+async function getFiles({ callSign, weekday, shiftStart }) {
   const [files] = await storage.bucket(BUCKET).getFiles({
     prefix: `${callSign.toUpperCase()}-${weekday}-${shiftStart}`,
-  }); 
+  });
 
   // Return the two most recent recordings
   files.sort((a, b) => {
-    return a.metadata.timeCreated < b.metadata.timeCreated ? 1 : -1;
-  }); 
+    return a.name < b.name ? 1 : -1;
+  });
   return files.slice(0, 2);
 }
 
-function mapToLocals(files) {
-  return files.map(file => {
-    const d = new Date(file.metadata.timeCreated);
-    /* 
-      ensure that shifts that end at midnight 
-      are listed as their start date
-    */
-    d.setHours(d.getHours() - 2);
-    
-    const options = { 
-      weekday: "long", 
-      year: "numeric", 
-      month: "long", 
-      day: "numeric", 
-      timeZone: "America/Chicago" 
+function mapToLocals(files, shiftStart) {
+  return files.map((file) => {
+    const lastHyphen = file.name.lastIndexOf("-");
+    const isoDate = file.name.slice(lastHyphen - 10, lastHyphen);    
+    const d = new Date(`${isoDate}T${shiftStart}:00:00-05:00`);
+
+    const options = {
+      weekday: "long",
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      timeZone: "America/Chicago",
     };
 
     return {
       title: d.toLocaleDateString("en-US", options),
-      src: file.metadata.mediaLink
+      src: file.metadata.mediaLink,
+    };
+  });
+}
+
+async function renderHtml(files, shiftStart) {
+  const streams = mapToLocals(files, shiftStart);
+  const template = await fs.readFile("./player.handlebars", "utf8");
+  const compiledTemplate = Handlebars.compile(template);
+  return compiledTemplate({ streams });
+}
+
+functions.http("player", async (req, res) => {
+  if (req.method === "GET") {
+    try {
+      const [, callSign, weekday, shiftStart] = req.path.split("/");
+      const parsedStart = parseShiftStartTo24Hr(shiftStart);
+
+      const files = await getFiles({
+        callSign: callSign,
+        weekday: parseWeekdayToInt(weekday),
+        shiftStart: parsedStart,
+      });
+      if (files.length > 0) {
+        const html = await renderHtml(files, parsedStart);
+        res.status(200).send(html);
+      } else {
+        res.status(404).send("");
+      }
+    } catch (err) {
+      console.log(req.path);
+      console.error(err);
+      if (err instanceof TypeError) {
+        res.status(400).send(err.message);
+      } else {
+        res.status(500).send("");
+      }
     }
-  }); 
-}
-
-async function renderPlayer(req, res) {  
-  console.log(req.shiftStart);
-  const files = await getFiles({
-    callSign: req.params.callSign,
-    weekday: req.weekdayInt,
-    shiftStart: req.shiftStart,
-  });  
-  if(files.length === 0) {
-    res.sendStatus(404);
   } else {
-    const streams = mapToLocals(files);    
-    res.render("player", { streams, layout: false });
+    res.sendStatus(405);
   }
-}
-
-
-app.param("weekday", parseWeekdayToInt);
-app.param("shift_start", parseShiftStartTo24Hr);
-app.use("/:callSign/:weekday/:shift_start", renderPlayer);
-
-exports.archivePlayer = app;
+});
