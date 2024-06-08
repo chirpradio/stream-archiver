@@ -4,7 +4,7 @@ apt-get install -yq git supervisor python3-pip python3-virtualenv
 
 # Fetch source code
 export HOME=/root
-git clone --single-branch --branch separate-recording-and-composing https://github.com/chirpradio/stream-archiver.git /opt/app
+git clone --branch $(curl http://metadata.google.internal/computeMetadata/v1/instance/attributes/BRANCH -H "Metadata-Flavor: Google") https://github.com/chirpradio/stream-archiver.git /opt/app
 
 # Install Cloud Ops Agent
 sudo bash /opt/app/recorder/add-google-cloud-ops-agent-repo.sh --also-install
