@@ -1,6 +1,6 @@
 # Install or update needed software
 apt-get update
-apt-get install -yq git supervisor python3-pip python3-virtualenv
+apt-get install -yq git supervisor python3-pip python3-virtualenv logrotate
 
 # Fetch source code
 export HOME=/root
@@ -23,8 +23,9 @@ echo -n ,BUCKET_NAME=\"$(curl http://metadata.google.internal/computeMetadata/v1
 # Set ownership to newly created account
 chown -R recorder:recorder /opt/app
 
-# Put supervisor configuration in proper place
+# Put configuration files in place
 cp /opt/app/recorder/recorder.conf /etc/supervisor/conf.d/recorder.conf
+cp /opt/app/recorder/logrotate/rsyslog /etc/logrotate.d/rsyslog
 
 # Start service via supervisorctl
 supervisorctl reread
