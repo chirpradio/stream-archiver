@@ -83,12 +83,9 @@ async function getFiles({ callSign, weekday, shiftStart }) {
   return files.slice(0, 2);
 }
 
-function mapToLocals(files, shiftStart) {
+function mapToLocals(files) {
   return files.map((file) => {
-    const lastHyphen = file.name.lastIndexOf("-");
-    const isoDate = file.name.slice(lastHyphen - 10, lastHyphen);    
-    const d = new Date(`${isoDate}T${shiftStart}:00:00-05:00`);
-
+    const d = new Date(file.metadata.customTime);
     const options = {
       weekday: "long",
       year: "numeric",
@@ -104,8 +101,8 @@ function mapToLocals(files, shiftStart) {
   });
 }
 
-async function renderHtml(files, shiftStart) {
-  const streams = mapToLocals(files, shiftStart);
+async function renderHtml(files) {
+  const streams = mapToLocals(files);
   const template = await fs.readFile("./player.handlebars", "utf8");
   const compiledTemplate = Handlebars.compile(template);
   return compiledTemplate({ streams });
@@ -123,7 +120,7 @@ functions.http("player", async (req, res) => {
         shiftStart: parsedStart,
       });
       if (files.length > 0) {
-        const html = await renderHtml(files, parsedStart);
+        const html = await renderHtml(files);
         res.status(200).send(html);
       } else {
         res.status(404).send("");
