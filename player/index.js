@@ -83,6 +83,17 @@ async function getFiles({ callSign, weekday, shiftStart }) {
   return files.slice(0, 2);
 }
 
+async function getFilesByDj(djId) {
+  const [files] = await storage.bucket(BUCKET).getFiles({
+    prefix: `${djId}/`,
+  });
+
+  // Return the most recent recordings by this DJ
+  return files.sort((a, b) => {
+    return a.name < b.name ? 1 : -1;
+  });  
+}
+
 function mapToLocals(files) {
   return files.map((file) => {
     const d = new Date(file.metadata.customTime);
@@ -111,14 +122,29 @@ async function renderHtml(files) {
 functions.http("player", async (req, res) => {
   if (req.method === "GET") {
     try {
-      const [, callSign, weekday, shiftStart] = req.path.split("/");
-      const parsedStart = parseShiftStartTo24Hr(shiftStart);
+      const pathParts = req.path.split("/").filter((p) => p);
 
-      const files = await getFiles({
-        callSign: callSign,
-        weekday: parseWeekdayToInt(weekday),
-        shiftStart: parsedStart,
-      });
+      let files;
+
+      // Route: /{callSign}/dj/{djId}
+      if (pathParts.length === 3 && pathParts[1] === "dj") {
+        const djId = pathParts[2];
+        files = await getFilesByDj(djId);
+      }
+      // Route: /{callSign}/{weekday}/{shiftStart}
+      else if (pathParts.length === 3) {
+        const [callSign, weekday, shiftStart] = pathParts;
+        const parsedStart = parseShiftStartTo24Hr(shiftStart);
+        files = await getFiles({
+          callSign: callSign,
+          weekday: parseWeekdayToInt(weekday),
+          shiftStart: parsedStart,
+        });
+      } else {
+        res.status(400).send("Invalid route");
+        return;
+      }
+
       if (files.length > 0) {
         const html = await renderHtml(files);
         res.status(200).send(html);
