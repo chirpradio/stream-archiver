@@ -6,6 +6,7 @@
   "scripts": {
     "start": "yaml2json env.dev.yaml >.env.json && ./node_modules/.bin/env-cmd -f ./.env.json functions-framework --target=composeStreamArchive --port=8081",
     "test": "sh ./test.sh",
+    "test:unit": "node --test",
     "lint": "npx eslint . --fix && npx prettier . --write",
     "deploy:dev": "gcloud functions deploy composeStreamArchive --project chirpradiodev --gen2 --runtime=nodejs20 --region=us-central1 --env-vars-file env.dev.yaml --trigger-topic compose-stream-archive --retry",
     "deploy:prod": "gcloud functions deploy composeStreamArchive --project chirpradio-hrd --gen2 --runtime=nodejs20 --region=us-central1 --env-vars-file env.yaml --trigger-topic compose-stream-archive --retry",

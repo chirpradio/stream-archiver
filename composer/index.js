@@ -8,6 +8,7 @@ const destinationBucket = storage.bucket(process.env.DESTINATION_BUCKET);
 const crypto = require("crypto");
 const { formatInTimeZone, format, fromZonedTime } = require("date-fns-tz");
 const { parse } = require("date-fns");
+const { getShiftForPublishTime } = require("./shift-schedule");
 
 function getPrefix(weekday, hour) {
   const hourString = hour.toString().padStart(2, "0");
@@ -205,11 +206,18 @@ async function copyToDjFolder(filename, djId) {
 }
 
 async function composeStreamArchive(cloudEvent) {
+  const shift = getShiftForPublishTime(cloudEvent.data.message.publishTime);
+  if (!shift) {
+    console.log(
+      `No shift ends at this trigger time, skipping. publishTime=${cloudEvent.data.message.publishTime}`,
+    );
+    return;
+  }
+
   let success = false;
   let hourFiles;
 
   try {
-    const shift = JSON.parse(atob(cloudEvent.data.message.data));
     hourFiles = await composeHours(shift);
     const shiftDate = getShiftDate(hourFiles);
     const filename = getFilename(
