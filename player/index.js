@@ -83,12 +83,20 @@ async function getFiles({ callSign, weekday, shiftStart }) {
   return files.slice(0, 2);
 }
 
-function mapToLocals(files, shiftStart) {
-  return files.map((file) => {
-    const lastHyphen = file.name.lastIndexOf("-");
-    const isoDate = file.name.slice(lastHyphen - 10, lastHyphen);    
-    const d = new Date(`${isoDate}T${shiftStart}:00:00-05:00`);
+async function getFilesByDj(djId) {
+  const [files] = await storage.bucket(BUCKET).getFiles({
+    prefix: `${djId}/`,
+  });
 
+  // Return the most recent recordings by this DJ
+  return files.sort((a, b) => {
+    return a.name < b.name ? 1 : -1;
+  });  
+}
+
+function mapToLocals(files) {
+  return files.map((file) => {
+    const d = new Date(file.metadata.customTime);
     const options = {
       weekday: "long",
       year: "numeric",
@@ -97,15 +105,24 @@ function mapToLocals(files, shiftStart) {
       timeZone: "America/Chicago",
     };
 
+    // Format time as "3pm" or "12am"
+    const timeOptions = {
+      hour: "numeric",
+      timeZone: "America/Chicago",
+    };
+    const timeStr = d.toLocaleTimeString("en-US", timeOptions)
+      .toLowerCase()
+      .replace(/\s/g, "");
+
     return {
-      title: d.toLocaleDateString("en-US", options),
+      title: `${d.toLocaleDateString("en-US", options)} (${timeStr})`,
       src: file.metadata.mediaLink,
     };
   });
 }
 
-async function renderHtml(files, shiftStart) {
-  const streams = mapToLocals(files, shiftStart);
+async function renderHtml(files) {
+  const streams = mapToLocals(files);
   const template = await fs.readFile("./player.handlebars", "utf8");
   const compiledTemplate = Handlebars.compile(template);
   return compiledTemplate({ streams });
@@ -114,16 +131,31 @@ async function renderHtml(files, shiftStart) {
 functions.http("player", async (req, res) => {
   if (req.method === "GET") {
     try {
-      const [, callSign, weekday, shiftStart] = req.path.split("/");
-      const parsedStart = parseShiftStartTo24Hr(shiftStart);
+      const pathParts = req.path.split("/").filter((p) => p);
 
-      const files = await getFiles({
-        callSign: callSign,
-        weekday: parseWeekdayToInt(weekday),
-        shiftStart: parsedStart,
-      });
+      let files;
+
+      // Route: /{callSign}/dj/{djId}
+      if (pathParts.length === 3 && pathParts[1] === "dj") {
+        const djId = pathParts[2];
+        files = await getFilesByDj(djId);
+      }
+      // Route: /{callSign}/{weekday}/{shiftStart}
+      else if (pathParts.length === 3) {
+        const [callSign, weekday, shiftStart] = pathParts;
+        const parsedStart = parseShiftStartTo24Hr(shiftStart);
+        files = await getFiles({
+          callSign: callSign,
+          weekday: parseWeekdayToInt(weekday),
+          shiftStart: parsedStart,
+        });
+      } else {
+        res.status(400).send("Invalid route");
+        return;
+      }
+
       if (files.length > 0) {
-        const html = await renderHtml(files, parsedStart);
+        const html = await renderHtml(files);
         res.status(200).send(html);
       } else {
         res.status(404).send("");

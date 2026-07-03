@@ -1,10 +1,13 @@
 const functions = require("@google-cloud/functions-framework");
 const { Storage } = require("@google-cloud/storage");
+const { Datastore } = require("@google-cloud/datastore");
 const storage = new Storage();
+const datastore = new Datastore();
 const sourceBucket = storage.bucket(process.env.SOURCE_BUCKET);
 const destinationBucket = storage.bucket(process.env.DESTINATION_BUCKET);
 const crypto = require("crypto");
-const { formatInTimeZone, format } = require("date-fns-tz");
+const { formatInTimeZone, format, fromZonedTime } = require("date-fns-tz");
+const { parse } = require("date-fns");
 
 function getPrefix(weekday, hour) {
   const hourString = hour.toString().padStart(2, "0");
@@ -81,12 +84,12 @@ function getShiftDate(hourFiles) {
   firstSources.sort(sortFilesByTimeCreated);
   const earliest = firstSources[0];
   const shiftDate = new Date(earliest.metadata.timeCreated);
-  
+
   // set time to the beginning of that hour
   shiftDate.setMinutes(0);
   shiftDate.setSeconds(0);
   shiftDate.setMilliseconds(0);
-  
+
   return shiftDate;
 }
 
@@ -121,6 +124,86 @@ async function deleteSourceFiles(hourFiles) {
   }
 }
 
+async function getPlaylistEventsForShift(shiftDate, hours) {
+  const events = [];
+  const timezone = "America/Chicago";
+
+  // Get the date in Chicago timezone
+  const dateStr = formatInTimeZone(shiftDate, timezone, "yyyy-MM-dd");
+
+  for (const hour of hours) {
+    // Create start and end times in Chicago timezone
+    const startTimeStr = `${dateStr} ${hour.toString().padStart(2, "0")}:00:00`;
+    const endTimeStr = `${dateStr} ${hour.toString().padStart(2, "0")}:59:59`;
+
+    // Parse the time strings into Date objects, then convert to UTC
+    const startTimeLocal = parse(
+      startTimeStr,
+      "yyyy-MM-dd HH:mm:ss",
+      new Date(),
+    );
+    const endTimeLocal = parse(endTimeStr, "yyyy-MM-dd HH:mm:ss", new Date());
+
+    // Convert from Chicago time to UTC for Datastore query
+    const startTime = fromZonedTime(startTimeLocal, timezone);
+    const endTime = fromZonedTime(endTimeLocal, timezone);
+
+    const query = datastore
+      .createQuery("PlaylistEvent")
+      .filter("established", ">=", startTime)
+      .filter("established", "<=", endTime);
+
+    try {
+      const [results] = await datastore.runQuery(query);
+      events.push(...results);
+    } catch (err) {
+      console.error(`Error querying PlaylistEvent for hour ${hour}:`, err);
+    }
+  }
+
+  return events;
+}
+
+function getMostCommonDjId(events) {
+  if (events.length === 0) {
+    return null;
+  }
+
+  const djCounts = {};
+
+  for (const event of events) {
+    if (event.selector) {
+      // Extract the User ID from the selector key
+      const djId = event.selector.id || event.selector.name;
+      if (djId) {
+        djCounts[djId] = (djCounts[djId] || 0) + 1;
+      }
+    }
+  }
+
+  // Find the DJ with the most events
+  let mostCommonDj = null;
+  let maxCount = 0;
+
+  for (const [djId, count] of Object.entries(djCounts)) {
+    if (count > maxCount) {
+      maxCount = count;
+      mostCommonDj = djId;
+    }
+  }
+
+  return mostCommonDj;
+}
+
+async function copyToDjFolder(filename, djId) {
+  const sourceFile = destinationBucket.file(filename);
+  const djFilename = `${djId}/${filename}`;
+  const djFile = destinationBucket.file(djFilename);
+
+  await sourceFile.copy(djFile);
+  console.log(`Copied to DJ folder: ${djFilename}`);
+}
+
 async function composeStreamArchive(cloudEvent) {
   let success = false;
   let hourFiles;
@@ -136,6 +219,23 @@ async function composeStreamArchive(cloudEvent) {
     );
     const shiftFile = await composeShift(filename, hourFiles);
     await moveToPublicFolder(filename, shiftFile, shiftDate);
+
+    // Query Datastore to find the DJ for this shift and create a copy
+    try {
+      const events = await getPlaylistEventsForShift(shiftDate, shift.hours);
+      const djId = getMostCommonDjId(events);
+
+      if (djId) {
+        await copyToDjFolder(filename, djId);
+        console.log(`DJ-specific copy created for DJ: ${djId}`);
+      } else {
+        console.log("No DJ ID found from PlaylistEvents");
+      }
+    } catch (err) {
+      console.error("Error creating DJ-specific copy:", err);
+      // Don't fail the whole operation if DJ copy fails
+    }
+
     success = true;
     console.log(`Success: ${filename}`);
   } catch (err) {
