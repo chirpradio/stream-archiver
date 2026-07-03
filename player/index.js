@@ -105,8 +105,17 @@ function mapToLocals(files) {
       timeZone: "America/Chicago",
     };
 
+    // Format time as "3pm" or "12am"
+    const timeOptions = {
+      hour: "numeric",
+      timeZone: "America/Chicago",
+    };
+    const timeStr = d.toLocaleTimeString("en-US", timeOptions)
+      .toLowerCase()
+      .replace(/\s/g, "");
+
     return {
-      title: d.toLocaleDateString("en-US", options),
+      title: `${d.toLocaleDateString("en-US", options)} (${timeStr})`,
       src: file.metadata.mediaLink,
     };
   });
