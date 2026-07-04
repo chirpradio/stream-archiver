@@ -271,4 +271,4 @@ async function composeStreamArchive(cloudEvent) {
   }
 }
 
-functions.cloudEvent("composeStreamArchive", composeStreamArchive);
+functions.cloudEvent("compose-stream-archive", composeStreamArchive);
