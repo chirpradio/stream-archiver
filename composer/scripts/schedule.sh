@@ -1,6 +1,8 @@
 topic=$1
+project=$(echo "${topic}" | sed -n 's#^projects/\([^/]*\)/topics/.*#\1#p')
 
 gcloud scheduler jobs create pubsub compose-stream-archive-hourly \
+  --project ${project} \
   --location us-central1 \
   --time-zone "America/Chicago" \
   --schedule "5 * * * *" \
