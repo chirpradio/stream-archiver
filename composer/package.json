@@ -4,13 +4,14 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "yaml2json env.dev.yaml >.env.json && ./node_modules/.bin/env-cmd -f ./.env.json functions-framework --target=composeStreamArchive --port=8081",
+    "start": "yaml2json env.dev.yaml >.env.json && ./node_modules/.bin/env-cmd -f ./.env.json functions-framework --target=compose-stream-archive --port=8081",
     "test": "sh ./test.sh",
+    "test:unit": "node --test",
     "lint": "npx eslint . --fix && npx prettier . --write",
-    "deploy:dev": "gcloud functions deploy composeStreamArchive --project chirpradiodev --gen2 --runtime=nodejs20 --region=us-central1 --env-vars-file env.dev.yaml --trigger-topic compose-stream-archive --retry",
-    "deploy:prod": "gcloud functions deploy composeStreamArchive --project chirpradio-hrd --gen2 --runtime=nodejs20 --region=us-central1 --env-vars-file env.yaml --trigger-topic compose-stream-archive --retry",
-    "schedule:dev": "sh ./schedule.sh projects/chirpradiodev/topics/compose-stream-archive",
-    "schedule:prod": "sh ./schedule.sh projects/chirpradio-hrd/topics/compose-stream-archive"
+    "deploy:dev": "gcloud functions deploy compose-stream-archive --project chirpradiodev --gen2 --runtime=nodejs24 --region=us-central1 --env-vars-file env.dev.yaml --trigger-topic compose-stream-archive --retry",
+    "deploy:prod": "gcloud functions deploy compose-stream-archive --project chirpradio-hrd --gen2 --runtime=nodejs24 --region=us-central1 --env-vars-file env.yaml --trigger-topic compose-stream-archive --retry",
+    "schedule:dev": "sh ./scripts/schedule.sh projects/chirpradiodev/topics/compose-stream-archive",
+    "schedule:prod": "sh ./scripts/schedule.sh projects/chirpradio-hrd/topics/compose-stream-archive"
   },
   "author": "",
   "license": "ISC",
