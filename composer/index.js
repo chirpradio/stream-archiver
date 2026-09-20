@@ -9,6 +9,12 @@ const crypto = require("crypto");
 const { formatInTimeZone, format, fromZonedTime } = require("date-fns-tz");
 const { parse } = require("date-fns");
 const { getShiftForPublishTime } = require("./shift-schedule");
+const {
+  getExpectedShiftDate,
+  filterChunksByExpectedDate,
+  isRetryableError,
+  deleteSourceFiles,
+} = require("./archive-utils");
 
 function getPrefix(weekday, hour) {
   const hourString = hour.toString().padStart(2, "0");
@@ -27,18 +33,27 @@ function sortFilesByTimeCreated(a, b) {
   return a.metadata.timeCreated < b.metadata.timeCreated ? -1 : 1;
 }
 
-async function getAudioChunksForHour(weekday, hour) {
+async function getAudioChunksForHour(weekday, hour, expectedDate) {
   const [files] = await sourceBucket.getFiles({
     prefix: getPrefix(weekday, hour),
   });
-  if (files.length === 0) {
+
+  /*
+    The prefix above only scopes by weekday+hour, not date, so it'll
+    also match any chunk left over from a prior week (e.g. one that
+    failed to compose and wasn't cleaned up). Filter down to chunks
+    actually recorded on the date this shift covers.
+  */
+  const currentChunks = filterChunksByExpectedDate(files, expectedDate);
+
+  if (currentChunks.length === 0) {
     throw Error(`Missing files for ${hour}`);
   }
 
   // ensure they're in order
-  files.sort(sortFilesByTimeCreated);
+  currentChunks.sort(sortFilesByTimeCreated);
 
-  return files;
+  return currentChunks;
 }
 
 /* 
@@ -46,8 +61,8 @@ async function getAudioChunksForHour(weekday, hour) {
   If we try to rapidly compose the entire shift into a single object
   we get a 429 Too Many Requests error from Storage.
 */
-async function composeHour(weekday, hour) {
-  const sources = await getAudioChunksForHour(weekday, hour);
+async function composeHour(weekday, hour, expectedDate) {
+  const sources = await getAudioChunksForHour(weekday, hour, expectedDate);
   const filename = getFilename(weekday, hour, "");
   const hourFile = sourceBucket.file(`temp/${filename}`);
 
@@ -71,27 +86,18 @@ async function composeHour(weekday, hour) {
 }
 
 // compose short chunks into a single hour of audio
-async function composeHours(shift) {
+async function composeHours(shift, expectedDate) {
   const promises = shift.hours.map((hour) => {
-    return composeHour(shift.weekday, hour);
+    return composeHour(shift.weekday, hour, expectedDate);
   });
   const hourFiles = await Promise.all(promises);
   return hourFiles;
 }
 
-function getShiftDate(hourFiles) {
-  // find the earliest source file
-  const firstSources = hourFiles.map((f) => f.sources[0]);
-  firstSources.sort(sortFilesByTimeCreated);
-  const earliest = firstSources[0];
-  const shiftDate = new Date(earliest.metadata.timeCreated);
-
-  // set time to the beginning of that hour
-  shiftDate.setMinutes(0);
-  shiftDate.setSeconds(0);
-  shiftDate.setMilliseconds(0);
-
-  return shiftDate;
+// the calendar date (Chicago) this shift's audio was recorded on
+function getShiftDate(expectedDate) {
+  const localMidnight = parse(expectedDate, "yyyy-MM-dd", new Date());
+  return fromZonedTime(localMidnight, "America/Chicago");
 }
 
 // compose each hour into a single file for the entire shift
@@ -116,13 +122,6 @@ async function moveToPublicFolder(filename, shiftFile, shiftDate) {
     */
     customTime: format(shiftDate, "yyyy-MM-dd'T'HH:mm:ss'Z'"),
   });
-}
-
-async function deleteSourceFiles(hourFiles) {
-  const allFiles = hourFiles.map((o) => [o.file, ...o.sources]).flat(1);
-  for (const file of allFiles) {
-    await file.delete();
-  }
 }
 
 async function getPlaylistEventsForShift(shiftDate, hours) {
@@ -216,15 +215,14 @@ async function composeStreamArchive(cloudEvent) {
 
   let success = false;
   let hourFiles;
+  const expectedDate = getExpectedShiftDate(
+    cloudEvent.data.message.publishTime,
+  );
 
   try {
-    hourFiles = await composeHours(shift);
-    const shiftDate = getShiftDate(hourFiles);
-    const filename = getFilename(
-      shift.weekday,
-      shift.hours[0],
-      formatInTimeZone(shiftDate, "America/Chicago", "yyyy-MM-dd"),
-    );
+    hourFiles = await composeHours(shift, expectedDate);
+    const shiftDate = getShiftDate(expectedDate);
+    const filename = getFilename(shift.weekday, shift.hours[0], expectedDate);
     const shiftFile = await composeShift(filename, hourFiles);
     await moveToPublicFolder(filename, shiftFile, shiftDate);
 
@@ -249,25 +247,19 @@ async function composeStreamArchive(cloudEvent) {
   } catch (err) {
     console.error(err);
 
-    if (err.code === 429) {
-      // retry if we made too many API requests when combining
+    if (isRetryableError(err)) {
+      // retry on rate limiting or a transient Storage error
       return Promise.reject();
     } else {
-      // otherwise do not retry
+      console.error(
+        `SHIFT_FAILED weekday=${shift.weekday} hours=${shift.hours.join(",")} date=${expectedDate}`,
+      );
       return Promise.resolve();
     }
   }
 
   if (success) {
-    try {
-      await deleteSourceFiles(hourFiles);
-    } catch (err) {
-      console.error(err);
-      /*
-        don't worry about retrying and let the bucket 
-        retention policy handle clean up instead
-      */
-    }
+    await deleteSourceFiles(hourFiles);
   }
 }
 
