@@ -248,8 +248,14 @@ async function composeStreamArchive(cloudEvent) {
     console.error(err);
 
     if (isRetryableError(err)) {
-      // retry on rate limiting or a transient Storage error
-      return Promise.reject();
+      /*
+        Must reject with the actual error, not Promise.reject() with no
+        argument. functions-framework only sends a failing (500) response
+        - which is what tells Pub/Sub to redeliver - when the rejection
+        reason is truthy; a bare Promise.reject() rejects with undefined,
+        which it treats as "no error" and acks with 204 regardless.
+      */
+      return Promise.reject(err);
     } else {
       console.error(
         `SHIFT_FAILED weekday=${shift.weekday} hours=${shift.hours.join(",")} date=${expectedDate}`,
