@@ -27,8 +27,21 @@ function filterChunksByExpectedDate(files, expectedDate) {
   );
 }
 
+// Transient network-level failures (Node/libuv errno codes), as distinct
+// from the HTTP status codes Storage's own ApiError carries in err.code.
+const RETRYABLE_NETWORK_CODES = new Set([
+  "ECONNRESET",
+  "ETIMEDOUT",
+  "ECONNREFUSED",
+  "EPIPE",
+]);
+
 function isRetryableError(err) {
-  return err.code === 429 || (err.code >= 500 && err.code < 600);
+  return (
+    err.code === 429 ||
+    (err.code >= 500 && err.code < 600) ||
+    RETRYABLE_NETWORK_CODES.has(err.code)
+  );
 }
 
 async function deleteSourceFiles(hourFiles) {

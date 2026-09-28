@@ -58,6 +58,20 @@ test("isRetryableError: 404 (not found) is not retryable", () => {
   assert.equal(isRetryableError({ code: 404 }), false);
 });
 
+test("isRetryableError: ECONNRESET (transient network reset) is retryable", () => {
+  // observed live: a FetchError "socket hang up" during Storage combine(),
+  // with a string errno code rather than an HTTP status
+  assert.equal(isRetryableError({ code: "ECONNRESET" }), true);
+});
+
+test("isRetryableError: ETIMEDOUT is retryable", () => {
+  assert.equal(isRetryableError({ code: "ETIMEDOUT" }), true);
+});
+
+test("isRetryableError: EACCES (permission denied) is not retryable", () => {
+  assert.equal(isRetryableError({ code: "EACCES" }), false);
+});
+
 test("deleteSourceFiles: a failed delete doesn't stop the rest of the batch from being deleted", async () => {
   const deleted = [];
   const makeFile = (name, shouldFail) => ({
