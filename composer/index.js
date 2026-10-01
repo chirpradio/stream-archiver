@@ -270,3 +270,5 @@ async function composeStreamArchive(cloudEvent) {
 }
 
 functions.cloudEvent("compose-stream-archive", composeStreamArchive);
+
+module.exports = { composeStreamArchive };
