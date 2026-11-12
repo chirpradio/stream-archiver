@@ -112,8 +112,15 @@ async function moveToPublicFolder(filename, shiftFile, shiftStart) {
   await publicFile.setMetadata({
     contentType: "audio/mpeg",
     /*
-      Not the most descriptive field name, but
-      it can be used to automatically delete recordings
+      Not the most descriptive field name, but it's where we keep the
+      instant this shift started. The player reads it back and renders
+      each show's displayed date AND time from it, so it has to carry
+      the shift's start hour, not just its calendar date.
+
+      It does NOT currently drive deletion, despite what the field is
+      usually used for: the archive bucket's only lifecycle rule is a
+      plain `age: 14`. Wiring retention to this field would mean adding
+      a daysSinceCustomTime condition to that rule.
       https://cloud.google.com/storage/docs/metadata#custom-time
     */
     customTime: formatCustomTime(shiftStart),
