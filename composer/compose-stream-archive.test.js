@@ -205,3 +205,60 @@ test("composeStreamArchive: resolves (does not retry) and logs SHIFT_FAILED for 
     `expected a SHIFT_FAILED log line, got: ${JSON.stringify(errorLogs)}`,
   );
 });
+
+test("composeStreamArchive: customTime records the shift's start time, not midnight", async () => {
+  const { composeStreamArchive } = setup();
+  seedHourChunks(fakeStorage.sourceBucket, 2, [6, 7, 8], EXPECTED_DATE);
+
+  await composeStreamArchive({
+    data: { message: { publishTime: TUESDAY_9AM_TRIGGER } },
+  });
+
+  const [published] = [...fakeStorage.destinationBucket.filesByName.values()];
+  /*
+    The 6am-9am shift on Tuesday 2024-01-02 starts at 6am Chicago
+    (CST, UTC-6) -> 12:00 UTC. The player renders the show's time
+    straight out of customTime, so a date-only value makes every
+    show display as 12am.
+  */
+  assert.equal(published.metadata.customTime, "2024-01-02T12:00:00Z");
+});
+
+test("composeStreamArchive: customTime for a late shift stays on the shift's own Chicago date", async () => {
+  const { composeStreamArchive } = setup();
+  seedHourChunks(fakeStorage.sourceBucket, 2, [22, 23], "2026-11-10");
+
+  // the Tuesday 10pm-midnight block triggers at Wednesday 12:05am Chicago
+  // (CST, UTC-6) -> 06:05 UTC on 2026-11-11
+  await composeStreamArchive({
+    data: { message: { publishTime: "2026-11-11T06:05:00.000Z" } },
+  });
+
+  const [published] = [...fakeStorage.destinationBucket.filesByName.values()];
+  assert.match(published.name, /^WCXP-LP-2-22-2026-11-10-/);
+  // 10pm Chicago on 2026-11-10 is already the 11th in UTC
+  assert.equal(published.metadata.customTime, "2026-11-11T04:00:00Z");
+
+  // what the player actually renders from that stamp
+  const d = new Date(published.metadata.customTime);
+  assert.equal(
+    d.toLocaleDateString("en-US", {
+      weekday: "long",
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      timeZone: "America/Chicago",
+    }),
+    "Tuesday, November 10, 2026",
+  );
+  assert.equal(
+    d
+      .toLocaleTimeString("en-US", {
+        hour: "numeric",
+        timeZone: "America/Chicago",
+      })
+      .toLowerCase()
+      .replace(/\s/g, ""),
+    "10pm",
+  );
+});

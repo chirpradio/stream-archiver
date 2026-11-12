@@ -1,4 +1,5 @@
-const { formatInTimeZone } = require("date-fns-tz");
+const { formatInTimeZone, fromZonedTime } = require("date-fns-tz");
+const { parse } = require("date-fns");
 
 const TIMEZONE = "America/Chicago";
 
@@ -11,6 +12,33 @@ const TIMEZONE = "America/Chicago";
 function getExpectedShiftDate(publishTime) {
   const anchor = new Date(new Date(publishTime).getTime() - 65 * 60 * 1000);
   return formatInTimeZone(anchor, TIMEZONE, "yyyy-MM-dd");
+}
+
+/*
+  The instant the shift started: the Chicago calendar date its audio was
+  recorded on, at the hour the shift begins. This has to carry the hour -
+  the player renders each show's displayed time straight out of the
+  customTime metadata written from it, so a date-only value makes every
+  show on the site read as 12am.
+*/
+function getShiftStart(expectedDate, startHour) {
+  const hourString = startHour.toString().padStart(2, "0");
+  const localStart = parse(
+    `${expectedDate} ${hourString}:00:00`,
+    "yyyy-MM-dd HH:mm:ss",
+    new Date(),
+  );
+  return fromZonedTime(localStart, TIMEZONE);
+}
+
+/*
+  The customTime stamp for a composed shift. Formatted explicitly in UTC:
+  date-fns' own `format` renders in the host's zone while this pattern
+  appends a literal "Z", which only produced correct stamps because Cloud
+  Run happens to run as UTC.
+*/
+function formatCustomTime(instant) {
+  return formatInTimeZone(instant, "UTC", "yyyy-MM-dd'T'HH:mm:ss'Z'");
 }
 
 // Recorder chunk filenames end in ...-YYYY-MM-DD.mp3
@@ -57,6 +85,8 @@ async function deleteSourceFiles(hourFiles) {
 
 module.exports = {
   getExpectedShiftDate,
+  getShiftStart,
+  formatCustomTime,
   getDateFromFilename,
   filterChunksByExpectedDate,
   isRetryableError,

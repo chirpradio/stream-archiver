@@ -6,11 +6,13 @@ const datastore = new Datastore();
 const sourceBucket = storage.bucket(process.env.SOURCE_BUCKET);
 const destinationBucket = storage.bucket(process.env.DESTINATION_BUCKET);
 const crypto = require("crypto");
-const { formatInTimeZone, format, fromZonedTime } = require("date-fns-tz");
+const { formatInTimeZone, fromZonedTime } = require("date-fns-tz");
 const { parse } = require("date-fns");
 const { getShiftForPublishTime } = require("./shift-schedule");
 const {
   getExpectedShiftDate,
+  getShiftStart,
+  formatCustomTime,
   filterChunksByExpectedDate,
   isRetryableError,
   deleteSourceFiles,
@@ -94,12 +96,6 @@ async function composeHours(shift, expectedDate) {
   return hourFiles;
 }
 
-// the calendar date (Chicago) this shift's audio was recorded on
-function getShiftDate(expectedDate) {
-  const localMidnight = parse(expectedDate, "yyyy-MM-dd", new Date());
-  return fromZonedTime(localMidnight, "America/Chicago");
-}
-
 // compose each hour into a single file for the entire shift
 async function composeShift(filename, hourFiles) {
   const composedHours = hourFiles.map((o) => o.file);
@@ -110,7 +106,7 @@ async function composeShift(filename, hourFiles) {
   return shiftFile;
 }
 
-async function moveToPublicFolder(filename, shiftFile, shiftDate) {
+async function moveToPublicFolder(filename, shiftFile, shiftStart) {
   const publicFile = destinationBucket.file(filename);
   await shiftFile.move(publicFile);
   await publicFile.setMetadata({
@@ -120,16 +116,16 @@ async function moveToPublicFolder(filename, shiftFile, shiftDate) {
       it can be used to automatically delete recordings
       https://cloud.google.com/storage/docs/metadata#custom-time
     */
-    customTime: format(shiftDate, "yyyy-MM-dd'T'HH:mm:ss'Z'"),
+    customTime: formatCustomTime(shiftStart),
   });
 }
 
-async function getPlaylistEventsForShift(shiftDate, hours) {
+async function getPlaylistEventsForShift(shiftStart, hours) {
   const events = [];
   const timezone = "America/Chicago";
 
   // Get the date in Chicago timezone
-  const dateStr = formatInTimeZone(shiftDate, timezone, "yyyy-MM-dd");
+  const dateStr = formatInTimeZone(shiftStart, timezone, "yyyy-MM-dd");
 
   for (const hour of hours) {
     // Create start and end times in Chicago timezone
@@ -221,14 +217,14 @@ async function composeStreamArchive(cloudEvent) {
 
   try {
     hourFiles = await composeHours(shift, expectedDate);
-    const shiftDate = getShiftDate(expectedDate);
+    const shiftStart = getShiftStart(expectedDate, shift.hours[0]);
     const filename = getFilename(shift.weekday, shift.hours[0], expectedDate);
     const shiftFile = await composeShift(filename, hourFiles);
-    await moveToPublicFolder(filename, shiftFile, shiftDate);
+    await moveToPublicFolder(filename, shiftFile, shiftStart);
 
     // Query Datastore to find the DJ for this shift and create a copy
     try {
-      const events = await getPlaylistEventsForShift(shiftDate, shift.hours);
+      const events = await getPlaylistEventsForShift(shiftStart, shift.hours);
       const djId = getMostCommonDjId(events);
 
       if (djId) {
