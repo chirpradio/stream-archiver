@@ -6,9 +6,17 @@ const datastore = new Datastore();
 const sourceBucket = storage.bucket(process.env.SOURCE_BUCKET);
 const destinationBucket = storage.bucket(process.env.DESTINATION_BUCKET);
 const crypto = require("crypto");
-const { formatInTimeZone, format, fromZonedTime } = require("date-fns-tz");
+const { formatInTimeZone, fromZonedTime } = require("date-fns-tz");
 const { parse } = require("date-fns");
 const { getShiftForPublishTime } = require("./shift-schedule");
+const {
+  getExpectedShiftDate,
+  getShiftStart,
+  formatCustomTime,
+  filterChunksByExpectedDate,
+  isRetryableError,
+  deleteSourceFiles,
+} = require("./archive-utils");
 
 function getPrefix(weekday, hour) {
   const hourString = hour.toString().padStart(2, "0");
@@ -27,18 +35,27 @@ function sortFilesByTimeCreated(a, b) {
   return a.metadata.timeCreated < b.metadata.timeCreated ? -1 : 1;
 }
 
-async function getAudioChunksForHour(weekday, hour) {
+async function getAudioChunksForHour(weekday, hour, expectedDate) {
   const [files] = await sourceBucket.getFiles({
     prefix: getPrefix(weekday, hour),
   });
-  if (files.length === 0) {
+
+  /*
+    The prefix above only scopes by weekday+hour, not date, so it'll
+    also match any chunk left over from a prior week (e.g. one that
+    failed to compose and wasn't cleaned up). Filter down to chunks
+    actually recorded on the date this shift covers.
+  */
+  const currentChunks = filterChunksByExpectedDate(files, expectedDate);
+
+  if (currentChunks.length === 0) {
     throw Error(`Missing files for ${hour}`);
   }
 
   // ensure they're in order
-  files.sort(sortFilesByTimeCreated);
+  currentChunks.sort(sortFilesByTimeCreated);
 
-  return files;
+  return currentChunks;
 }
 
 /* 
@@ -46,8 +63,8 @@ async function getAudioChunksForHour(weekday, hour) {
   If we try to rapidly compose the entire shift into a single object
   we get a 429 Too Many Requests error from Storage.
 */
-async function composeHour(weekday, hour) {
-  const sources = await getAudioChunksForHour(weekday, hour);
+async function composeHour(weekday, hour, expectedDate) {
+  const sources = await getAudioChunksForHour(weekday, hour, expectedDate);
   const filename = getFilename(weekday, hour, "");
   const hourFile = sourceBucket.file(`temp/${filename}`);
 
@@ -71,27 +88,12 @@ async function composeHour(weekday, hour) {
 }
 
 // compose short chunks into a single hour of audio
-async function composeHours(shift) {
+async function composeHours(shift, expectedDate) {
   const promises = shift.hours.map((hour) => {
-    return composeHour(shift.weekday, hour);
+    return composeHour(shift.weekday, hour, expectedDate);
   });
   const hourFiles = await Promise.all(promises);
   return hourFiles;
-}
-
-function getShiftDate(hourFiles) {
-  // find the earliest source file
-  const firstSources = hourFiles.map((f) => f.sources[0]);
-  firstSources.sort(sortFilesByTimeCreated);
-  const earliest = firstSources[0];
-  const shiftDate = new Date(earliest.metadata.timeCreated);
-
-  // set time to the beginning of that hour
-  shiftDate.setMinutes(0);
-  shiftDate.setSeconds(0);
-  shiftDate.setMilliseconds(0);
-
-  return shiftDate;
 }
 
 // compose each hour into a single file for the entire shift
@@ -104,33 +106,33 @@ async function composeShift(filename, hourFiles) {
   return shiftFile;
 }
 
-async function moveToPublicFolder(filename, shiftFile, shiftDate) {
+async function moveToPublicFolder(filename, shiftFile, shiftStart) {
   const publicFile = destinationBucket.file(filename);
   await shiftFile.move(publicFile);
   await publicFile.setMetadata({
     contentType: "audio/mpeg",
     /*
-      Not the most descriptive field name, but
-      it can be used to automatically delete recordings
+      Not the most descriptive field name, but it's where we keep the
+      instant this shift started. The player reads it back and renders
+      each show's displayed date AND time from it, so it has to carry
+      the shift's start hour, not just its calendar date.
+
+      It does NOT currently drive deletion, despite what the field is
+      usually used for: the archive bucket's only lifecycle rule is a
+      plain `age: 14`. Wiring retention to this field would mean adding
+      a daysSinceCustomTime condition to that rule.
       https://cloud.google.com/storage/docs/metadata#custom-time
     */
-    customTime: format(shiftDate, "yyyy-MM-dd'T'HH:mm:ss'Z'"),
+    customTime: formatCustomTime(shiftStart),
   });
 }
 
-async function deleteSourceFiles(hourFiles) {
-  const allFiles = hourFiles.map((o) => [o.file, ...o.sources]).flat(1);
-  for (const file of allFiles) {
-    await file.delete();
-  }
-}
-
-async function getPlaylistEventsForShift(shiftDate, hours) {
+async function getPlaylistEventsForShift(shiftStart, hours) {
   const events = [];
   const timezone = "America/Chicago";
 
   // Get the date in Chicago timezone
-  const dateStr = formatInTimeZone(shiftDate, timezone, "yyyy-MM-dd");
+  const dateStr = formatInTimeZone(shiftStart, timezone, "yyyy-MM-dd");
 
   for (const hour of hours) {
     // Create start and end times in Chicago timezone
@@ -216,21 +218,20 @@ async function composeStreamArchive(cloudEvent) {
 
   let success = false;
   let hourFiles;
+  const expectedDate = getExpectedShiftDate(
+    cloudEvent.data.message.publishTime,
+  );
 
   try {
-    hourFiles = await composeHours(shift);
-    const shiftDate = getShiftDate(hourFiles);
-    const filename = getFilename(
-      shift.weekday,
-      shift.hours[0],
-      formatInTimeZone(shiftDate, "America/Chicago", "yyyy-MM-dd"),
-    );
+    hourFiles = await composeHours(shift, expectedDate);
+    const shiftStart = getShiftStart(expectedDate, shift.hours[0]);
+    const filename = getFilename(shift.weekday, shift.hours[0], expectedDate);
     const shiftFile = await composeShift(filename, hourFiles);
-    await moveToPublicFolder(filename, shiftFile, shiftDate);
+    await moveToPublicFolder(filename, shiftFile, shiftStart);
 
     // Query Datastore to find the DJ for this shift and create a copy
     try {
-      const events = await getPlaylistEventsForShift(shiftDate, shift.hours);
+      const events = await getPlaylistEventsForShift(shiftStart, shift.hours);
       const djId = getMostCommonDjId(events);
 
       if (djId) {
@@ -249,26 +250,28 @@ async function composeStreamArchive(cloudEvent) {
   } catch (err) {
     console.error(err);
 
-    if (err.code === 429) {
-      // retry if we made too many API requests when combining
-      return Promise.reject();
+    if (isRetryableError(err)) {
+      /*
+        Must reject with the actual error, not Promise.reject() with no
+        argument. functions-framework only sends a failing (500) response
+        - which is what tells Pub/Sub to redeliver - when the rejection
+        reason is truthy; a bare Promise.reject() rejects with undefined,
+        which it treats as "no error" and acks with 204 regardless.
+      */
+      return Promise.reject(err);
     } else {
-      // otherwise do not retry
+      console.error(
+        `SHIFT_FAILED weekday=${shift.weekday} hours=${shift.hours.join(",")} date=${expectedDate}`,
+      );
       return Promise.resolve();
     }
   }
 
   if (success) {
-    try {
-      await deleteSourceFiles(hourFiles);
-    } catch (err) {
-      console.error(err);
-      /*
-        don't worry about retrying and let the bucket 
-        retention policy handle clean up instead
-      */
-    }
+    await deleteSourceFiles(hourFiles);
   }
 }
 
 functions.cloudEvent("compose-stream-archive", composeStreamArchive);
+
+module.exports = { composeStreamArchive };
