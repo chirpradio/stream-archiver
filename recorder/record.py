@@ -5,16 +5,14 @@ import signal
 import google.cloud.logging
 from datetime import datetime
 from google.cloud import storage
-from http.client import HTTPConnection
 from zoneinfo import ZoneInfo
 
-# allll the logging
-HTTPConnection.debuglevel = 1
-logging.basicConfig()
-logging.getLogger().setLevel(logging.DEBUG)
-requests_log = logging.getLogger("urllib3")
-requests_log.setLevel(logging.DEBUG)
-requests_log.propagate = True
+# Log at INFO. The per-chunk "wrote ..." line below is the signal used to spot
+# recording gaps, so it stays. What is deliberately gone is the byte-level HTTP
+# transcript: HTTPConnection.debuglevel = 1 plus DEBUG on both the root logger
+# and urllib3 emitted dozens of syslog lines per 20-second chunk, including the
+# raw audio bytes, which is severe write amplification on a 10 GB disk.
+logging.basicConfig(level=logging.INFO)
 lc = google.cloud.logging.Client()
 lc.setup_logging()
 
