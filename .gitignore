@@ -2,3 +2,7 @@
 */node_modules
 */.env.json
 */env.yaml
+# The recorder's virtualenv lives inside the working tree, and startup.sh
+# deploys with `git reset --hard`. Ignoring it keeps the venv out of the way
+# of a stray `git clean -fd` on the instance.
+recorder/env/

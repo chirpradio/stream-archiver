@@ -1,7 +1,10 @@
 bucket=$1
 branch=$2
+# Optional. Needed when the previous instance is being kept around (stopped)
+# rather than deleted, since instance names must be unique within a zone.
+name=${3:-stream-archive-recorder}
 
-gcloud compute instances create stream-archive-recorder \
+gcloud compute instances create ${name} \
   --image-project=debian-cloud \
   --image-family=debian-12 \
   --zone=us-central1-a \
