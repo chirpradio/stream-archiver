@@ -58,6 +58,15 @@ apt-get install -yq git supervisor python3-pip python3-virtualenv logrotate \
 # tracked branch actually reach the instance. recorder/env is untracked, so
 # the reset leaves the virtualenv in place.
 export HOME=/root
+# git refuses to run against a repository owned by a different user, and the
+# `chown -R recorder:recorder` further down hands $APP_DIR to the recorder
+# account on the first boot. Without this line every later boot fails with
+# "detected dubious ownership in repository at /opt/app" and silently keeps the
+# code it already has -- the exact no-op deploy this script exists to prevent.
+# safe.directory is only honoured from system/global config, not from `-c`, so
+# it has to be written out; --replace-all keeps it a single entry across boots.
+git config --global --replace-all safe.directory "$APP_DIR"
+
 if [ -d "$APP_DIR/.git" ]; then
   if git -C "$APP_DIR" fetch --quiet origin "$BRANCH" \
     && git -C "$APP_DIR" reset --hard --quiet "origin/$BRANCH"; then
